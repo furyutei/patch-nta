@@ -63,6 +63,12 @@ if ( IS_TOUCHED ) {
     return;
 }
 
+var index_urltext = get_index_urltext();
+
+if (index_urltext == null) {
+    return;
+}
+
 
 var OPTIONS = {
         SEARCH_FORM_TARGET_IS_BLANK : true
@@ -70,7 +76,7 @@ var OPTIONS = {
     
     PAGE_CONFIGS = [
         {   // 法令解釈通達の目次へのリンクを追加
-            name : 'add_tsutatsu_kihon_hojin_index_link',
+            name : 'add_tsutatsu_kihon_index_link',
             
             url : () => true,
             
@@ -79,7 +85,7 @@ var OPTIONS = {
             patch : ( $element ) => {
                 var $index_link_container = $( '<span>&nbsp;-&nbsp;<a/></span>' ),
                     $index_link = $index_link_container.find( 'a' )
-                        .attr( 'href', '/law/zeiho-kaishaku/tsutatsu/kihon/hojin/01.htm' )
+                        .attr( 'href', index_urltext )
                         .text( '目次' );
                 
                 $element.after( $index_link_container );
@@ -127,6 +133,20 @@ var OPTIONS = {
         }
     ];
 
+
+function get_index_urltext() {
+  var base_url = window.location.href;
+
+  var regex = new RegExp("^(.*?www.nta.go.jp/law/zeiho-kaishaku/tsutatsu/kihon/(?:[^0-9].*?/)+)(?:[0-9_]+/)+[0-9_]+\.htm.*?$");
+
+  var result = base_url.match(regex);
+
+  if (result != null) {
+    return result[1] + '01.htm';
+  } else {
+    return null;
+  }
+}
 
 
 function get_absolute_url( path, base_url ) {
