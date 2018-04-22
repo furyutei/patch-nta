@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            patch-nta
 // @namespace       https://furyu.hatenablog.com/
-// @version         0.0.1.4
+// @version         0.0.1.5
 // @description     使いづらくなったと評判の(?)[国税庁のホームページ](https://www.nta.go.jp/)にパッチをあてます。
 // @author          furyu
 // @match           *://www.nta.go.jp/*
@@ -69,7 +69,8 @@ if ( IS_TOUCHED ) {
 
 
 var OPTIONS = {
-        SEARCH_FORM_TARGET_IS_BLANK : true
+        SEARCH_FORM_TARGET_IS_BLANK : true,
+        REDIRECT_TO_NORMALIZED_URL : true,
     },
     
     PAGE_CONFIGS = [
@@ -385,7 +386,7 @@ var OPTIONS = {
             
             url : () => true,
             
-            element : '#header_link',
+            element : 'body',
             
             patch : function ( $element ) {
                 if ( ! OPTIONS.SEARCH_FORM_TARGET_IS_BLANK ) {
@@ -427,6 +428,21 @@ var $get_fragment = ( function () {
         return $( range.createContextualFragment( html ) );
     };
 } )(); // end of $get_fragment()
+
+
+function check_redirect() {
+    if ( ! OPTIONS.REDIRECT_TO_NORMALIZED_URL ) {
+        return false;
+    }
+    
+    if ( ! location.href.match( new RegExp( '^(https?://www\.nta\.go\.jp/law/)zeiho-kaishaku/(.*)$' ) ) ) {
+        return false;
+    }
+    
+    location.replace( RegExp.$1 + RegExp.$2 );
+    
+    return true;
+} // end of check_redirect()
 
 
 function do_patch( patch_name ) {
@@ -499,6 +515,10 @@ function do_patch( patch_name ) {
 
 
 function main() {
+    if ( check_redirect() ) {
+        return;
+    }
+    
     do_patch();
 } // end of main()
 
