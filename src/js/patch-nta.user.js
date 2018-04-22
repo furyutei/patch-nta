@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            patch-nta
 // @namespace       https://furyu.hatenablog.com/
-// @version         0.0.1.1
+// @version         0.0.1.2
 // @description     使いづらくなったと評判の(?)[国税庁のホームページ](https://www.nta.go.jp/)にパッチをあてます。
 // @author          furyu
 // @match           *://www.nta.go.jp/*
@@ -44,6 +44,10 @@ THE SOFTWARE.
 
 'use strict';
 
+if ( window !== top ) {
+    return;
+}
+
 var SCRIPT_NAME = 'patch-nta',
     IS_TOUCHED = ( function () {
         var touched_id = SCRIPT_NAME + '_touched',
@@ -63,32 +67,75 @@ if ( IS_TOUCHED ) {
     return;
 }
 
-var index_urltext = get_index_urltext();
-
-if (index_urltext == null) {
-    return;
-}
-
 
 var OPTIONS = {
         SEARCH_FORM_TARGET_IS_BLANK : true
     },
     
     PAGE_CONFIGS = [
-        {   // 法令解釈通達の目次へのリンクを追加
+        {   // 法令解釈通達＞基本通達の目次へのリンクを追加
+            // TODO:
+            //  一部改正通達には未対応
+            //  例えば
+            //  [「所得税基本通達の制定について」の一部改正について（法令解釈通達）｜所得税法・一部改正通達｜国税庁](http://www.nta.go.jp/law/zeiho-kaishaku/tsutatsu/kihon/shotoku/kaisei/171127/index.htm)
+            //  から
+            //  [所得税法　一部改正通達｜法令解釈通達｜国税庁](http://www.nta.go.jp/law/zeiho-kaishaku/tsutatsu/kihon/shotoku/kaisei/kaisei_a.htm) 
+            //  などへは戻れない
             name : 'add_tsutatsu_kihon_index_link',
             
-            url : () => true,
+            url : '^(https?://www\.nta\.go\.jp/law/zeiho-kaishaku/tsutatsu/kihon/(?:sisan/)?[^/]+/)((?:[^/]+/)*)([\\w\\-]+\.htm).*?$',
             
-            element : 'a:contains("法令解釈通達")',
+            element : 'body',
             
-            patch : ( $element ) => {
-                var $index_link_container = $( '<span>&nbsp;-&nbsp;<a/></span>' ),
-                    $index_link = $index_link_container.find( 'a' )
-                        .attr( 'href', index_urltext )
-                        .text( '目次' );
+            patch : function ( $body ) {
+                var patch_info = this,
+                    index_url_base = patch_info.url_match_result[ 1 ],
+                    current_directory = patch_info.url_match_result[ 2 ],
+                    current_filename = patch_info.url_match_result[ 3 ];
                 
-                $element.after( $index_link_container );
+                var index_files = [ 'index.htm', 'mokuji.htm', '01.htm' ],
+                    check_index = function () {
+                        var index_file = index_files.shift();
+                        
+                        if ( ! index_file ) {
+                            return;
+                        }
+                        
+                        var index_url = index_url_base + index_file;
+                        
+                        if ( location.href.indexOf( index_url ) == 0 ) {
+                            return;
+                        }
+                        
+                        $.ajax( {
+                            url : index_url,
+                            beforeSend : function ( xhr ) {
+                                xhr.overrideMimeType( 'text/html;charset=' + (  document.characterSet || document.charset ) );
+                            }
+                        } )
+                        .done( ( html ) => {
+                            var $documnet = $get_fragment( html ),
+                                title = $documnet.find( 'title' ).text().replace( /(?:^.*?[／\/]|｜.+$)/g, '' ).trim(),
+                                $header_link = $documnet.find( '#header_link' ),
+                                $index_link_container = $( '<span>&nbsp;-&nbsp;<a/></span>' ),
+                                $index_link = $index_link_container.find( 'a' )
+                                    .attr( 'href', index_url )
+                                    .text( title ? title : '目次' );
+                            
+                            $body.find( 'a:contains("法令解釈通達")' ).filter( function () {
+                                return $( this ).text().trim() == '法令解釈通達';
+                            } ).each( function () {
+                                var $element = $( this );
+                                
+                                $element.after( $index_link_container.clone( true ) );
+                            } );
+                        } )
+                        .fail( () => {
+                            check_index();
+                        } );
+                    };
+                
+                check_index();
             }
         },
         
@@ -99,17 +146,21 @@ var OPTIONS = {
             
             element : '#header_link:not(:has(form#srch))',
             
-            patch : ( $element ) => {
+            patch : function ( $element ) {
                 $.get( get_absolute_url( '/', location.href ) )
                 .done( ( html ) => {
                     var $header_link = $get_fragment( html ).find( '#header_link' ),
-                        $search_form = $header_link.find( 'form#srch' );
+                        $srchBox = $header_link.find( '#srchBox' ),
+                        $search_form = $srchBox.find( 'form#srch' ),
+                        $script = $header_link.find( 'script' );
                     
                     $search_form.attr( 'accept-charset', 'UTF-8' );
-                    // 覚書:一部のページ（[基本通達・法人税法｜法令解釈通達｜国税庁](http://www.nta.go.jp/law/zeiho-kaishaku/tsutatsu/kihon/hojin/01.htm)等）は document.characterSet が "Shift＿JIS" になっている
+                    // ■覚書
+                    // 一部のページ（[基本通達・法人税法｜法令解釈通達｜国税庁](http://www.nta.go.jp/law/zeiho-kaishaku/tsutatsu/kihon/hojin/01.htm)等）は document.characterSet が "Shift＿JIS" になっている
                     // → 検索フォームの accept-charset を明示しておかないと、検索ページで文字化けしてしまう
                     
-                    $element.replaceWith( $header_link );
+                    $element.find( '.sitesearch' ).replaceWith( $srchBox );
+                    $srchBox.after( $script );
                     
                     do_patch( 'search_result_to_new_tab' );
                 } );
@@ -123,7 +174,7 @@ var OPTIONS = {
             
             element : '#header_link',
             
-            patch : ( $element ) => {
+            patch : function ( $element ) {
                 if ( ! OPTIONS.SEARCH_FORM_TARGET_IS_BLANK ) {
                     return;
                 }
@@ -132,21 +183,6 @@ var OPTIONS = {
             }
         }
     ];
-
-
-function get_index_urltext() {
-  var base_url = window.location.href;
-
-  var regex = new RegExp("^(.*?www.nta.go.jp/law/zeiho-kaishaku/tsutatsu/kihon/(?:[^0-9].*?/)+)(?:[0-9_]+/)+[0-9_]+\.htm.*?$");
-
-  var result = base_url.match(regex);
-
-  if (result != null) {
-    return result[1] + '01.htm';
-  } else {
-    return null;
-  }
-}
 
 
 function get_absolute_url( path, base_url ) {
@@ -187,30 +223,28 @@ function do_patch( patch_name ) {
         }
         
         var test_url = location.href,
-            config_url = page_config.url;
+            config_url = page_config.url,
+            patch_info = { page_config : page_config },
+            url_match_result;
         
         switch ( typeof config_url ) {
             case 'string' :
-                if ( ! new RegExp( config_url ).test( test_url ) ) {
-                    return;
-                }
+                url_match_result = test_url.match( new RegExp( config_url ) );
                 break;
             
             case 'object' :
-                if ( ! config_url.test( test_url ) ) {
-                    return;
-                }
+                url_match_result = test_url.match( config_url );
                 break;
             
             case 'function' :
-                if ( ! config_url( test_url ) ) {
-                    return;
-                }
+                url_match_result = config_url( test_url );
                 break;
-            
-            default :
-                return;
         }
+        if ( ! url_match_result ) {
+            return;
+        }
+        
+        patch_info.url_match_result = url_match_result;
         
         var config_element = page_config.element,
             $elements = $( [] );
@@ -228,8 +262,18 @@ function do_patch( patch_name ) {
                 return;
         }
         
-        $elements.each( function () {
-            page_config.patch( $( this ) );
+        patch_info.$elements = $elements;
+        
+        $elements.each( function ( index, element ) {
+            var $element = $( element );
+            
+            patch_info.element_info = {
+                index : index,
+                element : element,
+                $element : $element
+            };
+            
+            page_config.patch.call( patch_info, $element );
         } );
         
     } );
