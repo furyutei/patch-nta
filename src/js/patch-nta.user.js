@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            patch-nta
 // @namespace       https://furyu.hatenablog.com/
-// @version         0.0.1.2
+// @version         0.0.1.3
 // @description     使いづらくなったと評判の(?)[国税庁のホームページ](https://www.nta.go.jp/)にパッチをあてます。
 // @author          furyu
 // @match           *://www.nta.go.jp/*
@@ -87,13 +87,13 @@ var OPTIONS = {
             
             element : 'body',
             
-            patch : function ( $body ) {
+            patch : function ( $element ) {
                 var patch_info = this,
                     index_url_base = patch_info.url_match_result[ 1 ],
                     current_directory = patch_info.url_match_result[ 2 ],
                     current_filename = patch_info.url_match_result[ 3 ];
                 
-                var index_files = [ 'index.htm', 'mokuji.htm', '01.htm' ],
+                var index_files = [ 'index.htm', 'mokuji.htm', '01.htm', '00.htm' ],
                     check_index = function () {
                         var index_file = index_files.shift();
                         
@@ -105,6 +105,11 @@ var OPTIONS = {
                         
                         if ( location.href.indexOf( index_url ) == 0 ) {
                             return;
+                        }
+                        
+                        if ( localStorage.getItem(  SCRIPT_NAME + '-ignore-url-' + index_url ) ) {
+                           check_index();
+                           return;
                         }
                         
                         $.ajax( {
@@ -122,20 +127,140 @@ var OPTIONS = {
                                     .attr( 'href', index_url )
                                     .text( title ? title : '目次' );
                             
-                            $body.find( 'a:contains("法令解釈通達")' ).filter( function () {
+                            $element.find( 'a:contains("法令解釈通達")' ).filter( function () {
                                 return $( this ).text().trim() == '法令解釈通達';
                             } ).each( function () {
-                                var $element = $( this );
+                                var $target_link = $( this );
                                 
-                                $element.after( $index_link_container.clone( true ) );
+                                $target_link.after( $index_link_container.clone( true ) );
                             } );
                         } )
-                        .fail( () => {
+                        .fail( ( jqXHR ) => {
+                            if ( jqXHR.status == 404 ) {
+                                localStorage.setItem(  SCRIPT_NAME + '-ignore-url-' + index_url, true );
+                            }
                             check_index();
                         } );
                     };
                 
                 check_index();
+            }
+        },
+        
+        {   // 法令解釈通達＞個別通達 / 措置法通達 の目次へのリンクを追加
+            name : 'add_tsutatsu_kobetsu_index_link',
+            
+            url : '^(https?://www\.nta\.go\.jp/law/zeiho-kaishaku/tsutatsu/kobetsu/)(.+)$',
+            
+            element : 'body',
+            
+            patch : function ( $element ) {
+                var patch_info = this,
+                    index_url_base = patch_info.url_match_result[ 1 ],
+                    path = patch_info.url_match_result[ 2 ],
+                    path_infos = [
+                        // [所得税関係]
+                        { // 申告所得税関係
+                            path_reg : '^shotoku/shinkoku/',
+                            index_path : 'shotoku/shinkoku/sinkoku.htm'
+                        },
+                        { // 源泉所得税関係
+                            path_reg : '^shotoku/gensen/',
+                            index_path : 'shotoku/gensen/gensen.htm'
+                        },
+                        { // 譲渡・山林所得関係
+                            path_reg : '^shotoku/joto-sanrin/',
+                            index_path : 'shotoku/joto-sanrin/sanrin.htm'
+                        },
+                        
+                        // [相続・贈与税関係]
+                        { // 相続税関係
+                            path_reg : '^sozoku/',
+                            index_path : 'sozoku/souzoku.htm'
+                        },
+                        
+                        { // 財産評価関係
+                            path_reg : '^hyoka/',
+                            index_path : 'hyoka/zaisan.htm'
+                        },
+                        
+                        // [法人税関係]
+                        {
+                            path_reg : '^hojin/',
+                            index_path : 'hojin/houzin.htm'
+                        },
+                        
+                        // [間接税関係]
+                        {
+                            path_reg : '^kansetsu/',
+                            index_path : 'kansetsu/syouhi.htm'
+                        },
+                        
+                        // [徴収関係]
+                        {
+                            path_reg : '^chosyu/',
+                            index_path : 'chosyu/chosyu.htm'
+                        },
+                        
+                        // [その他]
+                        { // 税務調査手続関係
+                            path_reg : '^zeimuchosa/',
+                            index_path : 'zeimuchosa/zeimuchosa.htm'
+                        },
+                        { // 法定資料関係
+                            path_reg : '^hotei/',
+                            index_path : 'hotei/shiryo.htm'
+                        },
+                        { // 税理士法関係
+                            path_reg : '^zeirishi/',
+                            index_path : 'zeirishi/zeirishi2.htm'
+                        },
+                        { // その他
+                            path_reg : '^sonota/',
+                            index_path : 'sonota/sonota.htm'
+                        }
+                    ],
+                    
+                    add_index_links = function ( path_to_index ) {
+                        var index_url = index_url_base + path_to_index;
+                        
+                        if ( location.href.indexOf( index_url ) == 0 ) {
+                            return;
+                        }
+                        
+                        var title = document.title.split( '｜' )[ 1 ],
+                            $index_link_container = $( '<span>&nbsp;-&nbsp;<a/></span>' ),
+                            $index_link = $index_link_container.find( 'a' )
+                                .attr( 'href', index_url )
+                                .text( title ? title.replace( /目次.*/, '' ).trim() : '目次' );
+                        
+                        $element.find( 'a:contains("法令解釈通達")' ).filter( function () {
+                            return $( this ).text().trim() == '法令解釈通達';
+                        } ).each( function () {
+                            var $target_link = $( this );
+                            
+                            $target_link.after( $index_link_container.clone( true ) );
+                        } );
+                    };
+                
+                if ( path.match( /^(.*?\/sochiho\/)/ ) ) {
+                    // 措置法通達(共通)
+                    add_index_links( RegExp.$1 + 'sotihou.htm' );
+                    
+                    return;
+                }
+                
+                $( path_infos ).each( function () {
+                    var path_info = this;
+                    
+                    if ( ! new RegExp( path_info.path_reg ).test( path ) ) {
+                        return;
+                    }
+                    
+                    add_index_links( path_info.index_path );
+                    
+                    return false;
+                } );
             }
         },
         
@@ -251,6 +376,10 @@ function do_patch( patch_name ) {
         
         switch ( typeof config_element ) {
             case 'string' :
+                $elements = $( config_element );
+                break;
+            
+            case 'object' :
                 $elements = $( config_element );
                 break;
             
