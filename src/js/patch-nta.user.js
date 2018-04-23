@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            patch-nta
 // @namespace       https://furyu.hatenablog.com/
-// @version         0.0.1.5
+// @version         0.0.1.6
 // @description     使いづらくなったと評判の(?)[国税庁のホームページ](https://www.nta.go.jp/)にパッチをあてます。
 // @author          furyu
 // @match           *://www.nta.go.jp/*
@@ -44,16 +44,16 @@ THE SOFTWARE.
 
 'use strict';
 
-if ( window !== top ) {
+if ( window !== window.top ) {
     return;
 }
 
 var SCRIPT_NAME = 'patch-nta',
     IS_TOUCHED = ( function () {
         var touched_id = SCRIPT_NAME + '_touched',
-            jq_touched = $( '#' + touched_id );
+            $touched = $( '#' + touched_id );
         
-        if ( 0 < jq_touched.length ) {
+        if ( 0 < $touched.length ) {
             return true;
         }
         
@@ -75,13 +75,6 @@ var OPTIONS = {
     
     PAGE_CONFIGS = [
         {   // 法令解釈通達＞基本通達の目次へのリンクを追加
-            // TODO:
-            //  一部改正通達には未対応
-            //  例えば
-            //  [「所得税基本通達の制定について」の一部改正について（法令解釈通達）｜所得税法・一部改正通達｜国税庁](http://www.nta.go.jp/law/zeiho-kaishaku/tsutatsu/kihon/shotoku/kaisei/171127/index.htm)
-            //  から
-            //  [所得税法　一部改正通達｜法令解釈通達｜国税庁](http://www.nta.go.jp/law/zeiho-kaishaku/tsutatsu/kihon/shotoku/kaisei/kaisei_a.htm) 
-            //  などへは戻れない
             name : 'add_tsutatsu_kihon_index_link',
             
             url : '^(https?://www\.nta\.go\.jp/law/(?:zeiho-kaishaku/)?tsutatsu/kihon/(?:sisan/)?[^/]+/)((?:[^/]+/)*)([\\w\\-]+\.htm).*?$',
@@ -108,7 +101,7 @@ var OPTIONS = {
                             return;
                         }
                         
-                        if ( localStorage.getItem(  SCRIPT_NAME + '-ignore-url-' + index_url ) ) {
+                        if ( localStorage.getItem( SCRIPT_NAME + '-ignore-url-' + index_url ) ) {
                            check_index();
                            return;
                         }
@@ -116,13 +109,12 @@ var OPTIONS = {
                         $.ajax( {
                             url : index_url,
                             beforeSend : function ( xhr ) {
-                                xhr.overrideMimeType( 'text/html;charset=' + (  document.characterSet || document.charset ) );
+                                xhr.overrideMimeType( 'text/html;charset=' + ( document.characterSet || document.charset ) );
                             }
                         } )
                         .done( ( html ) => {
-                            var $documnet = $get_fragment( html ),
-                                title = $documnet.find( 'title' ).text().replace( /(?:^.*?[／\/]|｜.+$)/g, '' ).trim(),
-                                $header_link = $documnet.find( '#header_link' ),
+                            var $document = $get_fragment( html ),
+                                title = $document.find( 'title' ).text().replace( /(?:^.*?[／\/]|｜.+$)/g, '' ).trim(),
                                 $index_link_container = $( '<span>&nbsp;-&nbsp;<a/></span>' ),
                                 $index_link = $index_link_container.find( 'a' )
                                     .attr( 'href', index_url )
@@ -138,7 +130,7 @@ var OPTIONS = {
                         } )
                         .fail( ( jqXHR ) => {
                             if ( jqXHR.status == 404 ) {
-                                localStorage.setItem(  SCRIPT_NAME + '-ignore-url-' + index_url, true );
+                                localStorage.setItem( SCRIPT_NAME + '-ignore-url-' + index_url, true );
                             }
                             check_index();
                         } );
@@ -223,30 +215,29 @@ var OPTIONS = {
                         }
                     ],
                     
-                    check_deep_index = function ( path ) {
-                        // ■覚書
-                        // [第1章　法第74条の2～法第74条の6関係（質問検査権）｜国税庁](http://www.nta.go.jp/law/tsutatsu/kobetsu/zeimuchosa/120912/01.htm#a01_1)
-                        // のようなページを
-                        // [国税通則法第7章の2（国税の調査）関係通達の制定について（法令解釈通達）｜国税庁](http://www.nta.go.jp/law/tsutatsu/kobetsu/zeimuchosa/120912/index.htm)
-                        // のような目次ページにリンクさせる
-                        
+                    $get_deep_index = function ( path, pattern_info ) {
                         var $deferred = $.Deferred(),
                             $promise = $deferred.promise(),
                             index_url;
                         
-                        if ( ! path.match( new RegExp( '^(.*?/\\d+)/[^/]+\.htm' ) ) ) {
-                            $deferred.reject( index_url );
-                            return $promise;
+                        if ( pattern_info.index_path ) {
+                            index_url = new URL( pattern_info.index_path, location.href ).href;
                         }
-                        
-                        index_url = index_url_base + RegExp.$1 + '/index.htm';
+                        else {
+                            if ( ( ! pattern_info.reg_pattern ) || ( ! path.match( new RegExp( pattern_info.reg_pattern ) ) ) ) {
+                                $deferred.reject( index_url );
+                                return $promise;
+                            }
+                            
+                            index_url = index_url_base + RegExp.$1 + pattern_info.index_filename;
+                        }
                         
                         if ( location.href.indexOf( index_url ) == 0 ) {
-                            $deferred.reject( index_url );
+                            $deferred.resolve( index_url );
                             return $promise;
                         }
                         
-                        if ( localStorage.getItem(  SCRIPT_NAME + '-ignore-url-' + index_url ) ) {
+                        if ( localStorage.getItem( SCRIPT_NAME + '-ignore-url-' + index_url ) ) {
                             $deferred.reject( index_url );
                             return $promise;
                         }
@@ -254,7 +245,7 @@ var OPTIONS = {
                         $.ajax( {
                             url : index_url,
                             beforeSend : function ( xhr ) {
-                                xhr.overrideMimeType( 'text/html;charset=' + (  document.characterSet || document.charset ) );
+                                xhr.overrideMimeType( 'text/html;charset=' + ( document.characterSet || document.charset ) );
                             }
                         } )
                         .done( ( html ) => {
@@ -263,7 +254,7 @@ var OPTIONS = {
                         } )
                         .fail( ( jqXHR ) => {
                             if ( jqXHR.status == 404 ) {
-                                localStorage.setItem(  SCRIPT_NAME + '-ignore-url-' + index_url, true );
+                                localStorage.setItem( SCRIPT_NAME + '-ignore-url-' + index_url, true );
                             }
                             $deferred.reject( index_url );
                         } );
@@ -271,10 +262,65 @@ var OPTIONS = {
                         return $promise;
                     }, 
                     
+                    $find_deep_index = function ( path ) {
+                        var $deferred = $.Deferred(),
+                            $promise = $deferred.promise(),
+                            pattern_info_list = [
+                                { index_path : $( '#contents #bodyArea a:contains("目次に戻る")' ).attr( 'href' ) },
+                                // "目次に戻る"リンクがある場合、これを優先
+                                
+                                { reg_pattern : '^(.*?/\\d+/(?:[a-zA-Z_]\\w+/)?)[\\d_]+/(?:[^/]+/)*[^/]+\.htm', index_filename : '01.htm' },
+                                // P1. [〔措置法第69条の4《小規模宅地等についての相続税の課税価格の計算の特例》関係〕｜国税庁](http://www.nta.go.jp/law/tsutatsu/kobetsu/sozoku/sochiho/080708/69_4/01.htm#a-4-1)
+                                // P2. [第8条の4（（上場株式等に係る配当所得等の課税の特例））関係｜国税庁](http://www.nta.go.jp/law/tsutatsu/kobetsu/shotoku/sochiho/801226/sinkoku/57/08/04.htm)
+                                // のようなページを
+                                // I1.[目次／租税特別措置法（相続税法の特例関係）の取扱いについて（法令解釈通達）｜国税庁](http://www.nta.go.jp/law/tsutatsu/kobetsu/sozoku/sochiho/080708/01.htm)
+                                // I2.[租税特別措置法に係る所得税の取扱いについて｜国税庁](http://www.nta.go.jp/law/tsutatsu/kobetsu/shotoku/sochiho/801226/sinkoku/01.htm)
+                                // へとリンク
+                                
+                                { reg_pattern : '^(.*?/\\d+/)[^/]+\.htm', index_filename : 'index.htm' },
+                                // P1. [第1章　法第74条の2～法第74条の6関係（質問検査権）｜国税庁](http://www.nta.go.jp/law/tsutatsu/kobetsu/zeimuchosa/120912/01.htm#a01_1)
+                                // のようなページを
+                                // I1. [国税通則法第7章の2（国税の調査）関係通達の制定について（法令解釈通達）｜国税庁](http://www.nta.go.jp/law/tsutatsu/kobetsu/zeimuchosa/120912/index.htm)
+                                // へとリンク
+                                
+                                { reg_pattern : '^(.*?/\\d+/)[^/]+\.htm', index_filename : '01.htm' }
+                                // P1. [租税特別措置法（相続税法の特例関係）の取扱いについて（法令解釈通達）｜国税庁](http://www.nta.go.jp/law/tsutatsu/kobetsu/sozoku/sochiho/080708/02.htm)
+                                // のようなページを
+                                // I1. [目次／租税特別措置法（相続税法の特例関係）の取扱いについて（法令解釈通達）｜国税庁](http://www.nta.go.jp/law/tsutatsu/kobetsu/sozoku/sochiho/080708/01.htm)
+                                // へとリンク
+                            ],
+                            
+                            check = function () {
+                                var pattern_info = pattern_info_list.shift();
+                                
+                                if ( ! pattern_info ) {
+                                    $deferred.reject();
+                                    return;
+                                }
+                                
+                                $get_deep_index( path, pattern_info )
+                                .done( ( index_url ) => {
+                                    if ( location.href.indexOf( index_url ) == 0 ) {
+                                        // 現在位置が目次の場合、それより上位の目次を探すために reject() しておく
+                                        $deferred.reject( index_url, pattern_info );
+                                    }
+                                    else {
+                                        $deferred.resolve( index_url, pattern_info );
+                                    }
+                                } )
+                                .fail( ( index_url ) => {
+                                    check();
+                                } );
+                            };
+                        
+                        check();
+                        
+                        return $promise;
+                    }, 
+                    
                     add_index_links_from_html = function ( index_url, html ) {
-                        var $documnet = $get_fragment( html ),
-                            title = $documnet.find( 'title' ).text().replace( /(?:^.*?[／\/]|｜.+$|目次)/g, '' ).trim(),
-                            $header_link = $documnet.find( '#header_link' ),
+                        var $document = $get_fragment( html ),
+                            title = $document.find( 'title' ).text().replace( /(?:^.*?[／\/]|｜.+$|目次)/g, '' ).trim(),
                             $index_link_container = $( '<span>&nbsp;-&nbsp;<a/></span>' ),
                             $index_link = $index_link_container.find( 'a' )
                                 .attr( 'href', index_url )
@@ -299,7 +345,7 @@ var OPTIONS = {
                         $.ajax( {
                             url : index_url,
                             beforeSend : function ( xhr ) {
-                                xhr.overrideMimeType( 'text/html;charset=' + (  document.characterSet || document.charset ) );
+                                xhr.overrideMimeType( 'text/html;charset=' + ( document.characterSet || document.charset ) );
                             }
                         } )
                         .done( ( html ) => {
@@ -307,19 +353,16 @@ var OPTIONS = {
                         } );
                     };
                 
-                if ( path.match( /^(.*?\/sochiho\/)/ ) ) {
-                    // 措置法通達(共通)
-                    add_index_links( RegExp.$1 + 'sotihou.htm' );
-                    
-                    return;
-                }
-                
-                check_deep_index( path )
-                .done( ( index_url ) => {
-                    console.log( 'done:', index_url );
+                $find_deep_index( path )
+                .done( ( index_url, pattern_info ) => {
                 } )
-                .fail( ( index_url ) => {
-                    console.log( 'fail:', index_url );
+                .fail( () => {
+                    if ( path.match( /^(.*?\/sochiho\/)/ ) ) {
+                        // 措置法通達(共通)
+                        add_index_links( RegExp.$1 + 'sotihou.htm' );
+                        
+                        return;
+                    }
                     
                     $( path_infos ).each( function () {
                         var path_info = this,
@@ -346,6 +389,89 @@ var OPTIONS = {
             }
         },
         
+        {   // 法令解釈通達＞一部改正通達の目次情報を保存
+            name : 'save_tsutatsu_kaisei_index_info',
+            
+            url : '^https?://www\.nta\.go\.jp/law/.*?/kaisei?[^/]*.htm',
+            
+            element : 'body',
+            
+            patch : function ( $element ) {
+                var patch_info = this,
+                    url_info = new URL( location.href ),
+                    path = url_info.pathname,
+                    path_index_map = get_path_index_map();
+                
+                var index_path = path,
+                    title = document.title.replace( /(?:^.*?[／\/]|｜.+$|目次)/g, '' ).trim();
+                
+                path_index_map.index_path_to_title[ index_path ] = title ? title : '目次';
+                
+                $element.find( '#contents #bodyArea #page-top' ).nextAll( 'ul:first' ).find('> li > a').each( function () {
+                    var $link = $( this ),
+                        path = new URL( $link.attr( 'href' ), location.href ).pathname,
+                        index_info_list = ( function () {
+                            if ( ! path_index_map.path_to_index_info_list[ path ] ) {
+                                path_index_map.path_to_index_info_list[ path ] = [];
+                            }
+                            return path_index_map.path_to_index_info_list[ path ];
+                        } )(),
+                        filterd_list = $( index_info_list ).filter( function () {
+                            return this.path == index_path;
+                        } );
+                    
+                    if ( filterd_list.length <= 0 ) {
+                        index_info_list.push( {
+                            path : index_path
+                        } );
+                    }
+                } );
+                
+                set_path_index_map( path_index_map );
+            }
+        },
+        
+        {   // 法令解釈通達＞一部改正通達の目次へのリンクを追加
+            name : 'add_tsutatsu_kaisei_index_link',
+            
+            url : () => true,
+            
+            element : 'body',
+            
+            patch : function ( $element ) {
+                var patch_info = this,
+                    url_info = new URL( location.href ),
+                    path = url_info.pathname,
+                    path_index_map = get_path_index_map();
+                
+                var index_info_list = path_index_map.path_to_index_info_list[ path ];
+                
+                if ( ( ! index_info_list ) || ( index_info_list.length <= 0 ) ) {
+                    return;
+                }
+                
+                var $index_link_container = $( '<span>&nbsp;-&nbsp;</span>' );
+                
+                $( index_info_list ).each( function () {
+                    var index_info = this,
+                        $link = $( '<a/>' ).attr( 'href', index_info.path ).text( path_index_map.index_path_to_title[ index_info.path ] ),
+                        $seperator = $( '<span>|</span>' );
+                    
+                    $index_link_container.append( $link ).append( $seperator );
+                } );
+                
+                $index_link_container.find( 'span:last' ).remove();
+                
+                $element.find( 'a:contains("法令解釈通達")' ).filter( function () {
+                    return $( this ).text().trim() == '法令解釈通達';
+                } ).each( function () {
+                    var $target_link = $( this );
+                    
+                    $target_link.after( $index_link_container.clone( true ) );
+                } );
+            }
+        },
+        
         {   // 検索フォームの差替
             name : 'change_search_form',
             
@@ -364,7 +490,7 @@ var OPTIONS = {
                     
                     $search_form.attr( 'accept-charset', 'UTF-8' );
                     // ■覚書
-                    // 一部のページ（[基本通達・法人税法｜法令解釈通達｜国税庁](http://www.nta.go.jp/law/zeiho-kaishaku/tsutatsu/kihon/hojin/01.htm)等）は document.characterSet が "Shift＿JIS" になっている
+                    // 一部のページ（[基本通達・法人税法｜法令解釈通達｜国税庁](http://www.nta.go.jp/law/zeiho-kaishaku/tsutatsu/kihon/hojin/01.htm)等）は document.characterSet が "Shift_JIS" になっている
                     // → 検索フォームの accept-charset を明示しておかないと、検索ページで文字化けしてしまう
                     
                     if ( 0 < $replace_target.length ) {
@@ -443,6 +569,51 @@ function check_redirect() {
     
     return true;
 } // end of check_redirect()
+
+
+function get_path_index_map( path_index_map_name ) {
+    if ( ! path_index_map_name ) {
+        path_index_map_name = SCRIPT_NAME + '-path_index_map';
+    }
+    
+    var path_index_map;
+    
+    try {
+        path_index_map = JSON.parse( localStorage.getItem( path_index_map_name ) );
+    }
+    catch ( error ) {
+    }
+    
+    if ( ! path_index_map ) {
+        path_index_map = {
+            path_to_index_info_list : {},
+            index_path_to_title : {}
+        };
+    }
+    else {
+        if ( ! path_index_map.path_to_index_info_list ) {
+            path_index_map.path_to_index_info_list = {};
+        }
+        if ( ! path_index_map.index_path_to_title ) {
+            path_index_map.index_path_to_title = {};
+        }
+    }
+    
+    return path_index_map;
+} // end of get_path_index_map()
+
+
+function set_path_index_map( path_index_map, path_index_map_name ) {
+    if ( ! path_index_map ) {
+        return;
+    }
+    
+    if ( ! path_index_map_name ) {
+        path_index_map_name = SCRIPT_NAME + '-path_index_map';
+    }
+    
+    localStorage.setItem( path_index_map_name, JSON.stringify( path_index_map ) );
+} // end of set_path_index_map()
 
 
 function do_patch( patch_name ) {
